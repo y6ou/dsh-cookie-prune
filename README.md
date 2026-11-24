@@ -42,19 +42,40 @@
 
 需要 DSH `0.2.1-rc.3` 及以上，Node.js ≥ 22。
 
-### 方式一：直接从 GitHub 安装（推荐）
+> ### ⚠️ 安装时一定要带来源，不要用裸包名
+>
+> **这个包没有发布到 npm。** 直接执行 `dsh plugin --profile web add dsh-cookie-prune`
+> 会失败（npm 上不存在该包）。
+>
+> 更要注意的是：`dsh-cookie-prune` 这个 npm 名称**目前仍空着**，任何人现在都可以抢注。
+> 一旦被抢注，裸名安装就会**静默装到别人的包**。所以请始终使用下面两种带来源的写法之一。
+>
+> 另外，名字相近的 [`dsh-cookie-guard`](https://www.npmjs.com/package/dsh-cookie-guard) 是**另一位作者**的插件，
+> 只针对 DSH Desktop、且只缩短 cookie 寿命**不清理**已有 cookie。别装混了。
+
+### 方式一：用 Release 里的 tgz（推荐，最确定）
+
+```sh
+# 1. 下载
+curl -L -o dsh-cookie-prune-0.1.2.tgz \
+  https://github.com/y6ou/dsh-cookie-prune/releases/download/v0.1.2/dsh-cookie-prune-0.1.2.tgz
+
+# 2. 校验（必须完全一致，否则不要安装）
+sha256sum dsh-cookie-prune-0.1.2.tgz
+# 期望值：6841427fe43a8e05e7e1016547df7fbd2fa086e3a84843a5b0e7e795682cd2d8
+
+# 3. 安装
+dsh plugin --profile web add ./dsh-cookie-prune-0.1.2.tgz
+```
+
+### 方式二：直接从 GitHub 安装
 
 ```sh
 dsh plugin --profile web add github:y6ou/dsh-cookie-prune
 ```
 
-### 方式二：用 Release 里的 tgz
-
-从 [Releases](https://github.com/y6ou/dsh-cookie-prune/releases) 下载最新的 `dsh-cookie-prune-*.tgz`，然后：
-
-```sh
-dsh plugin --profile web add /绝对路径/dsh-cookie-prune-0.1.2.tgz
-```
+这种方式依赖你的机器能访问 github.com（git 或 https）。如果你的网络受限，
+会报 `Could not read from remote repository` 或端口连接失败，此时请改用方式一。
 
 ### 方式三：手动放置
 
