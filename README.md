@@ -1,5 +1,15 @@
 # dsh-cookie-prune
 
+[![Release](https://img.shields.io/github/v/release/y6ou/dsh-cookie-prune?label=release&color=blue)](https://github.com/y6ou/dsh-cookie-prune/releases/latest)
+[![License](https://img.shields.io/github/license/y6ou/dsh-cookie-prune?color=green)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522-informational)](package.json)
+[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.3%20~%200.2.2-blueviolet)](package.json)
+[![Tests](https://img.shields.io/badge/tests-16%20passed-success)](test/run.mjs)
+
+**当前版本 `0.1.2`** ｜ [⬇ 下载安装包](https://github.com/y6ou/dsh-cookie-prune/releases/latest) ｜ [更新日志](https://github.com/y6ou/dsh-cookie-prune/releases)
+
+> 上面这些徽章如果加载不出来（国内访问 shields.io 有时会失败），以本行文字为准：版本 0.1.2，安装包在 Releases。
+
 修复 DeepSeek Harness 的 **`dsh-auth-*` cookie 撑爆请求头**问题：启动若干次之后 Web UI 打不开、服务端返回 **HTTP 431**、Electron 侧报 `Web authentication failed`。
 
 已在 **DSHA 安卓客户端（`web` profile）** 上实测生效；`dsh web` 走同一套认证与 Web 服务，同样适用。**DSH Desktop 未实测**——它也用同一套 `@deepseek-ai/dsh-client-connection`，理论上适用，但请自行验证。
