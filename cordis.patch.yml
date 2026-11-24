@@ -1,0 +1,33 @@
+# dsh-cookie-prune — bundle patch layer
+#
+# Inserts one host row. The row wires `lib/index.js` into the running Web
+# server; no other configuration is required to fix the bug.
+#
+# keep              how many dsh-auth-* cookies may remain after a prune
+# maxHeaderSize     HTTP parser ceiling in bytes, so an already-stuck jar can
+#                   still be parsed and pruned
+# raiseHeaderLimit  auto   raise the ceiling only for a loopback bind (default)
+#                   always raise it regardless of the bind address
+#                   never  leave Node's default ceiling; only pruning is active
+# enabled           set false to disable the plugin without uninstalling it
+- insert:
+    - id: cookie-prune
+      name: dsh-cookie-prune
+      config:
+        keep: 6
+        maxHeaderSize: 65536
+        raiseHeaderLimit: auto
+
+# ---------------------------------------------------------------------------
+# Optional second layer: cap the cookie lifetime as well.
+#
+# The pruning hook above already bounds the jar at `keep` cookies, so this is
+# only a belt-and-braces measure for a browser this plugin never sees requests
+# from. A patch replaces the targeted row's whole `config`, so `trustedHosts`
+# must be restated exactly as the shipped `@deepseek-ai/dsh-web-app` layer
+# declares it. Leave this commented unless you actually want the lifetime cap.
+#
+# - id: connection
+#   config:
+#     trustedHosts: !!js ctx.webStartup.trustedHosts
+#     cookieMaxAgeDays: 1

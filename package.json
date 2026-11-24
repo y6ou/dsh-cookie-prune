@@ -1,0 +1,60 @@
+{
+  "name": "dsh-cookie-prune",
+  "version": "0.1.2",
+  "description": "Fixes the DeepSeek Harness dsh-auth-* cookie overflow (HTTP 431 / Web authentication failed / UI stops opening after ~72 launches). Prunes stale browser-session cookies on every response and raises the HTTP parser ceiling so an already-stuck instance recovers by itself. Verified on `dsh web` and the DSHA Android client.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/run.mjs",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsha",
+    "cookie",
+    "http-431",
+    "fix"
+  ],
+  "author": "y6ou",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/y6ou/dsh-cookie-prune.git"
+  },
+  "bugs": {
+    "url": "https://github.com/y6ou/dsh-cookie-prune/issues"
+  },
+  "homepage": "https://github.com/y6ou/dsh-cookie-prune#readme",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {},
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.2.1-rc.3 <0.4.0-0"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.1-rc.3": "compatible",
+        "0.2.1-rc.5": "compatible",
+        "0.2.2-rc.1": "compatible",
+        "0.2.2-rc.5": "compatible"
+      }
+    }
+  }
+}

@@ -1,122 +1,150 @@
 # dsh-cookie-prune
 
-修复 DeepSeek Harness 的 **`dsh-auth-*` cookie 撑爆请求头**问题：启动若干次之后页面打不开、返回 HTTP 431、Electron 侧报 `Web authentication failed`。
+修复 DeepSeek Harness 的 **`dsh-auth-*` cookie 撑爆请求头**问题：启动若干次之后 Web UI 打不开、服务端返回 **HTTP 431**、Electron 侧报 `Web authentication failed`。
 
-适用于 **`dsh web`（含 DSHA 安卓客户端）** 和 **DSH Desktop**，因为它们跑的是同一套 `@deepseek-ai/dsh-client-connection` 认证。
+已在 **DSHA 安卓客户端（`web` profile）** 上实测生效；`dsh web` 走同一套认证与 Web 服务，同样适用。**DSH Desktop 未实测**——它也用同一套 `@deepseek-ai/dsh-client-connection`，理论上适用，但请自行验证。
+
+> 这是社区修复，不是官方补丁。真正根治需要上游把 cookie 名改成只按 host 派生（见文末「上游修复建议」）。
 
 ## 问题成因
 
-1. `dsh-client-connection` 的会话 cookie 名是 `"dsh-auth-" + base64url(sha256(authority))`，而 HTTP 下 `authority` 是 **`host:port`**。
-2. 浏览器/WebView 的 cookie 库**只按 host 隔离，不区分端口**。于是每次启动换一个端口，就多出**一条新的** `dsh-auth-*` cookie，而不是覆盖上一条。
+1. `@deepseek-ai/dsh-client-connection` 的会话 cookie 名是 `"dsh-auth-" + base64url(sha256(authority))`，HTTP 下 `authority` 是 **`host:port`**。
+2. 浏览器 / WebView 的 cookie 库**只按 host 隔离，不区分端口**。于是每次启动换一个端口，就多出**一条新的** `dsh-auth-*`，而不是覆盖上一条。
 3. cookie 默认活 30 天，且没有任何代码清理它。
-4. Node 的 `maxHeaderSize` 默认 16 KiB，单条 cookie 在请求头里约占 228 B → **第 72 次启动**时 `Cookie` 头越界，请求在进入任何路由之前就被拒（431），界面再也打不开。
+4. Node 的 `maxHeaderSize` 默认 16 KiB，单条 cookie 在请求头里约 228 B：
+
+   `16384 ÷ 228 ≈ 71.9` → **第 72 次启动**时 `Cookie` 头越界，请求在进入任何路由之前就被拒（431），界面再也打不开。
+
+因为 cookie 名带端口，而端口每次随机（DSHA / Desktop 都是随机端口启动），所以这个问题**只会在反复重启后出现**，且清浏览器数据能立刻恢复——这正好解释了它的「玄学」表现。
 
 ## 修复方式
 
-两层，都**不碰认证逻辑本身**：
+两层，都**不修改认证逻辑**：
 
-| 层 | 作用 |
-|---|---|
-| **响应时清理** | 请求里若带着超过 `keep` 条 `dsh-auth-*`，只保留最新的 `keep` 条（当前正在服务的 authority 始终保留），其余回 `Set-Cookie: <name>=; Max-Age=0`，浏览器随即删除。稳态永远是 6 条（≈1.4 KB），不再是 72 条。静态资源请求也会触发清理。 |
-| **抬高解析上限** | `http.Server#maxHeaderSize` 是**按连接**读取的，运行时可改。把上限抬到 64 KiB 后，**已经卡死**的实例也能先解析请求、被第 1 层清理掉，从而自愈，而不是永久 431。 |
+| 层 | 做法 | 效果 |
+|---|---|---|
+| **响应时清理** | 请求里若带超过 `keep` 条 `dsh-auth-*`，保留最新的（当前正在服务的 authority 必留），其余回 `Set-Cookie: <name>=; Max-Age=0` | 稳态 6 条 ≈ 1.4 KB，不再是 72 条。静态资源请求也会触发，等于自动清扫 |
+| **抬高解析上限** | 把 `http.Server#maxHeaderSize` 抬到 64 KiB（Node 按连接读取该值） | **已经卡死**的实例也能先解析请求、再被清理掉，从而自愈，不再永久 431 |
 
-因为清理是靠标准 `Set-Cookie` 完成的，所以**已存在的历史垃圾 cookie 会被自动清掉**，不需要手动清浏览器的站点数据。
+清理用的是标准 `Set-Cookie`，所以**历史堆积的 cookie 会被自动删除**，不需要手动清浏览器站点数据。
 
 ## 安装
 
-### 1. 本地安装（本仓库已打好包）
+需要 DSH `0.2.1-rc.3` 及以上，Node.js ≥ 22。
+
+### 方式一：直接从 GitHub 安装（推荐）
 
 ```sh
-# 把 tgz 放进 profile
-cp dsh-cookie-prune-0.1.1.tgz /root/.dsh/profiles/web/
-cd /root/.dsh/profiles/web
-npm install ./dsh-cookie-prune-0.1.1.tgz --no-save
+dsh plugin --profile web add github:y6ou/dsh-cookie-prune
 ```
 
-然后编辑该 profile 的 `package.json`，把插件加进依赖和 bundle 列表：
+### 方式二：用 Release 里的 tgz
+
+从 [Releases](https://github.com/y6ou/dsh-cookie-prune/releases) 下载最新的 `dsh-cookie-prune-*.tgz`，然后：
+
+```sh
+dsh plugin --profile web add /绝对路径/dsh-cookie-prune-0.1.2.tgz
+```
+
+### 方式三：手动放置
+
+```sh
+mkdir -p ~/.dsh/profiles/web/node_modules/dsh-cookie-prune
+cp -r lib cordis.patch.yml package.json ~/.dsh/profiles/web/node_modules/dsh-cookie-prune/
+```
+
+再编辑 `~/.dsh/profiles/web/package.json`，把插件名加进 bundle 列表：
 
 ```jsonc
 {
-  "dependencies": { "dsh-cookie-prune": "0.1.0" },
-  "dsh": { "profile": { "bundles": [ /* …原有项… */, "dsh-cookie-prune" ] } }
+  "dependencies": { "dsh-cookie-prune": "0.1.2" },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "dsh-cookie-prune"
+      ]
+    }
+  }
 }
 ```
 
-重启 DSH / DSHA 生效。
+### 最后一步：重启
 
-### 2. 从 npm（发布后）
+**必须重启才生效**，而且请从 DSHA / DSH 客户端里重启——重启会生成新的签名密钥，当前页面的 cookie 立即失效，新地址带一次性 token，只有 App 能把它交给浏览器。
 
-```sh
-dsh plugin --profile web add dsh-cookie-prune
-```
-
-### DSHA 说明
-
-DSHA 启动的实际命令是——
-
-```
-dsh web --no-open --host 127.0.0.1 --port <随机端口>
-```
-
-也就是说它用的就是 **`web` profile**，只是端口每次随机（正是本 bug 的触发条件）。所以**装进 `profiles/web` 即可同时覆盖 DSH 与 DSHA**。
-
-> 如果你看到 `dsha-recovery-*` 这类 profile 目录，那是 DSHA 的兜底/残留目录，不是常驻目标；插件装 `profiles/web` 就够了。
+> **为什么是 `--profile web`**：DSHA 实际启动的命令是
+> `dsh web --no-open --host 127.0.0.1 --port <随机端口>`，用的就是 `web` profile。
+> 你可能还会看到 `dsha-recovery-*` 这类目录，那是兜底/残留，不是常驻目标。
 
 ## 验证
 
-重启后看启动日志，应出现：
+重启后，启动日志里应出现：
 
 ```
-cookie-prune: keeping at most 6 dsh-auth cookies, header ceiling 65536 bytes
+[cookie-prune] active: keep=6, header ceiling 65536 bytes
 ```
 
-再验证行为：反复重启几次，然后在浏览器里看 `127.0.0.1` 的 cookie 数量，应稳定在 6 条左右，不再单调增长。
+（这行用 `console.log` 输出，所以一定会进日志文件；早先版本用 `ctx.logger` 输出、在部分环境看不到，0.1.2 已修正。）
+
+想再确认它真的在干活，可以对运行中的服务压一个假的 cookie 头：
+
+```sh
+# 从日志里取当前端口
+PORT=$(grep -oE 'http://127\.0\.0\.1:[0-9]+' ~/dsh-web.log | tail -1 | sed 's/.*://')
+COOKIE=$(python3 -c "print('; '.join(f'dsh-auth-t{i}=x' for i in range(10)))")
+curl -s -D - -o /dev/null -H "Cookie: $COOKIE" "http://127.0.0.1:$PORT/" | grep -c "Max-Age=0"
+```
+
+- 输出 **`5`** → 生效（10 条假 cookie，保留 5 条，删 5 条）
+- 输出 **`0`** → 没生效
+
+这个测试只发假 cookie，不会碰你的真实会话。
 
 ## 配置
 
-在 profile 的 `cordis.patch.yml` 里覆盖（或直接改本包自带的 `cordis.patch.yml`）：
+编辑 `cordis.patch.yml`，或在 profile 的 `cordis.patch.yml` 里覆盖同 id 的行：
 
 ```yaml
 - id: cookie-prune
   config:
-    keep: 6              # 稳态保留条数；调小更省，调大可保留更多并发实例的会话
-    maxHeaderSize: 65536 # 解析上限；已卡死时靠它自愈。浏览器对单域名最多约 180 条 ≈ 41 KB，64 KiB 足够
-    enabled: true        # 设为 false 可临时停用
+    keep: 6                # 稳态保留条数
+    maxHeaderSize: 65536   # 解析上限（raiseHeaderLimit 生效时）
+    raiseHeaderLimit: auto # auto | always | never
+    enabled: true
 ```
 
-### 可选的第二层：限制 cookie 寿命
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `keep` | `6` | 清理后保留几条。调小更省，调大可容纳更多并发实例的会话 |
+| `maxHeaderSize` | `65536` | 解析上限。浏览器单域名最多约 180 条 cookie（≈41 KB），64 KiB 足够 |
+| `raiseHeaderLimit` | `auto` | `auto` = 仅在绑定 loopback 时抬高上限；局域网暴露时保持 Node 默认，避免放大不可信客户端的每连接缓冲区。`always` 强制抬高，`never` 关闭 |
+| `enabled` | `true` | 设 `false` 可临时停用而不用卸载 |
 
-清理已经能把 cookie 数量压住，这一层只是兜底（比如别的客户端仍在本插件看不到的地方堆积）。`cordis.patch.yml` 末尾有一段注释掉的示例：
+### 关于 `maxHeaderSize` 的安全性
 
-```yaml
-- id: connection
-  config:
-    trustedHosts: !!js ctx.webStartup.trustedHosts   # 必须原样重述
-    cookieMaxAgeDays: 1
-```
+把请求头上限从 16 KiB 抬到 64 KiB 意味着每条连接可能多占用约 48 KiB 的内存缓冲。默认只在 loopback 绑定时这么做，而 DSH 的默认绑定就是 `127.0.0.1`。如果你用 `--host` 绑到局域网地址，`auto` 会保持 Node 默认值（此时仍会清理 cookie，只是失去「已卡死时自愈」这一层）。
 
-注意：patch 会**整体替换**该行的 `config`，所以 `trustedHosts` 必须照抄原来的表达式，否则浏览器信任检查会失效。
+## 卸载
+
+从 `dsh.profile.bundles` 移除 `dsh-cookie-prune`，重启即可。插件用 `ctx.effect` 注册清理函数，卸载时会移除请求钩子并还原 `maxHeaderSize`。
 
 ## 兼容性
 
 | DSH | 状态 |
 |---|---|
-| 0.2.1-rc.3 / rc.5 | 适用 |
-| 0.2.2-rc.1（当前） | 适用，已针对该版本源码验证 |
-| 0.2.2-rc.5 | 适用（`connection` 的 cookie 逻辑与 rc.1 一致） |
+| 0.2.2-rc.1 | 实测生效（DSHA，`web` profile） |
+| 0.2.2-rc.5 | 适用（`connection` 的 cookie 逻辑与 rc.1 完全一致，已比对源码） |
+| 0.2.1-rc.3 / rc.5 | 适用（同上） |
+| DSH Desktop | **未实测**，理论适用 |
 
-运行环境：Node.js ≥ 22（用到 `Buffer` 的 `base64url` 解码）。
+## 已知取舍
 
-## 卸载
-
-从 `dsh.profile.bundles` 删掉 `dsh-cookie-prune` 并重启即可。插件用 `ctx.effect` 注册清理函数，卸载时会移除请求钩子并还原 `maxHeaderSize`。
-
-## 边界与说明
-
-- 只处理 `dsh-auth-` 前缀，不碰任何其他 cookie。
-- 清理用的 `issuedAt` 取自 cookie 载荷但**不验签**：伪造时间戳最多让一条本该被删的 cookie 多活一会儿，不会带来任何授权影响（鉴权仍由服务端验签）。
-- 多实例并存（比如同时开两个端口）时，保留最新 6 条，最老的会过期；老实例因此需要重新走一次带 token 的启动链接，属于可接受代价。`keep` 调大可放宽。
-- 这是缓解 + 自愈，真正根治仍在上游：让 cookie 名只按 host 派生（`127.0.0.1`），使每次启动覆盖同一条 cookie。
+- **多实例并存**时只保留最新 `keep` 条，最老的会话会被挤掉，需要重新走一次带 token 的启动链接。`keep` 调大可放宽。
+- 清理顺序依据 cookie 载荷里的 `issuedAt`，但**不验签**：伪造时间戳最多让一条本该删除的 cookie 多活一会儿，不带来任何授权影响（鉴权仍由服务端验签）。
+- 只处理 `dsh-auth-` 前缀，不碰其他任何 cookie。
+- 插件整体包了 try/catch：**插件自身出错最多是不生效，绝不会让 DSH 起不来**。
 
 ## 测试
 
@@ -124,8 +152,17 @@ cookie-prune: keeping at most 6 dsh-auth cookies, header ceiling 65536 bytes
 npm test
 ```
 
-14 项，覆盖：cookie 解析、时间戳解码、保留策略、`writeHead` 合并（认证层用 `res.writeHead(status, {"set-cookie": …})` 写 cookie，会覆盖已 staged 的头，必须合并）、100 条 cookie 的 431 自愈、100 次启动的稳态上界、静态资源请求触发清理、以及启动顺序竞态下的延迟挂载。
+16 项，涵盖：cookie 解析、时间戳解码、保留策略、loopback 判定与门控、`writeHead` 合并（认证层用 `res.writeHead(status, {"set-cookie": …})` 会覆盖已 staged 的头，必须合并）、100 条 cookie 的 431 自愈、100 次启动的稳态上界、静态资源触发清理、启动顺序竞态下的延迟挂载。
+
+## 上游修复建议
+
+真正根治只需上游改一处：
+
+1. **让 cookie 名只按 host 派生**（例如 `127.0.0.1`），使每次启动**覆盖同一条** cookie 而不是新增一条；或
+2. 启动时清掉历史的 `dsh-auth-*` cookie。
+
+改完之后这个插件就不再需要了。
 
 ## License
 
-MIT
+[MIT](LICENSE)
